@@ -70,6 +70,7 @@ if int(Config.get('Grapevine', 'Enabled')) != 0:
 	log("Grapevine enabled in config!", "grapevine")
 else:
 	useGrapevine = False
+	gsocket = None
 	log("Grapevine disabled in config!", "grapevine")
 
 # initialise grapevine connection
@@ -87,6 +88,9 @@ if useGrapevine:
 
 # Grapevine re-enable requested
 grapevineReconnecting = False
+
+# Game Variables dictionay
+game_variables = {}
 
 # Declare rooms dictionary
 rooms = {}
@@ -266,7 +270,7 @@ log("State Save interval: " + str(stateSaveInterval) + " seconds", "info")
 
 # Set last state save to 'now' on server boot
 lastStateSave = int(time.time())
-
+game_variables["shutdown_time"] = None
 # Deepcopy npcs fetched from a database into a master template
 npcsTemplate = deepcopy(npcs)
 
@@ -284,7 +288,6 @@ playerList = []
 
 # start the server
 mud = MudServer()
-
 
 
 # main game loop. We loop forever (i.e. until the program is terminated)
@@ -359,7 +362,7 @@ while True:
 	# print("grapevineReconnecting: " + str(grapevineReconnecting))
 	# pause for 1/5 of a second on each loop, so that we don't constantly
 	# use 100% CPU time
-	time.sleep(0.1)
+	time.sleep(0.2)
 	# print(eventSchedule)
 
 	# 'update' must be called in the loop to keep the game running and give
@@ -379,9 +382,26 @@ while True:
 		# State Save logic End
 		lastStateSave = now
 
+	#Handle Server Shutdown Timer
+	try:
+		if game_variables["shutdown_time"] != None:
+			# print(game_variables["shutdown_time"], "<=", time.time())
+			if game_variables["shutdown_time"] <= time.time():
+				for id in players:
+					mud._handle_disconnect(id)
+				# print(len(players))
+				if len(players) == 0:
+					# print('shutdown')	 
+					mud.shutdown()
+		else:
+			pass
+			# print(game_variables["shutdown_time"])
+	except Exception as e:
+		print(e)
+
 	# Handle Player Deaths
 	for (pid, pl) in list(players.items()):
-		if players[pid]['authenticated'] == True:
+		if players[pid]['authenticated'] is True:
 			if players[pid]['hp'] <= 0:
 				# Create player's corpse in the room
 				corpses[len(corpses)] = { 'room': players[pid]['room'], 'name': str(players[pid]['name'] + '`s corpse'), 'inv': players[pid]['inv'], 'died': int(time.time()), 'TTL': players[pid]['corpseTTL'], 'owner': 1 }
@@ -705,11 +725,18 @@ while True:
 		motdFile.close()
 		linesCount = len(motdLines)
 		for l in motdLines:
-			mud.send_message(id, l[:-1])
-
+			linesCount = linesCount - 1
+			if (linesCount == 4):
+				mud.send_message(id, f"<f0><b220>Server time is: {time.ctime()}")
+			elif (linesCount == 6):
+				mud.send_message(id, f"<f0><b220>      Players currently online: {len(players)}       ")
+			else:
+				mud.send_message(id, l[:-1])
+			
+		# mud.send_message(id, f"Server time is: {time.ctime()}")
 		mud.send_message(id, "\nWhat is your username? (type <f255>new<r> for new character)")
 		log("Client ID: " + str(id) + " has connected", "info")
-
+		
 	# go through any recently disconnected players
 	for id in mud.get_disconnected_players():
 
@@ -967,7 +994,7 @@ while True:
 				#print("gone into command eval")
 				if len(command) > 0:
 					if str(command[0]) == "@":
-						runAtCommand(command.lower()[1:], params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, itemsInWorld, envDB, env, scriptedEventsDB, eventSchedule, id, fights, corpses, channels, gsocket)
+						runAtCommand(command.lower()[1:], params, mud, game_variables, playersDB, players, rooms, npcsDB, npcs, itemsDB, itemsInWorld, envDB, env, scriptedEventsDB, eventSchedule, id, fights, corpses, channels, gsocket)
 					elif str(command[0]) == "/":
 						c = command[1:]
 						if len(c) == 0 and players[id]['defaultChannel'] != None:

@@ -288,6 +288,11 @@ def check(params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, items, 
 	else:
 		mud.send_message(id, 'Check what?')
 
+def serverinfo(params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, items, envDB, env, eventDB, eventSchedule, id, fights, corpses):
+	if players[id]['permissionLevel'] == 0:
+		dir(players)
+		print(players)
+
 def go(params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, items, envDB, env, eventDB, eventSchedule, id, fights, corpses):
 	if players[id]['canGo'] == 1:
 		# store the exit name
@@ -330,7 +335,7 @@ def go(params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, items, env
 					# send them a message telling them that the player
 					# entered the room
 					# mud.send_message(pid, '{} arrived via exit {}|'.format(players[id]['name'], ex))
-					mud.send_message(pid, '<f32>{}<r> has arrived.'.format(players[id]['name'], ex))
+					mud.send_message(pid, '<f32>{}<r> has arrived.'.format(players[id]['name']))
 
 			# send the player a message telling them where they are now
 			#mud.send_message(id, 'You arrive at {}'.format(players[id]['room']))
@@ -455,6 +460,7 @@ def runCommand(command, params, mud, playersDB, players, rooms, npcsDB, npcs, it
 		"check": check,
 		"whisper": whisper,
 		"tell": tell,
+		"serverinfo": serverinfo,
 	}
 
 	try:

@@ -200,18 +200,19 @@ class MudServer(object):
 		"""Closes down the server, disconnecting all clients and
 		closing the listen socket.
 		"""
+
 		# for each client
 		for cl in self._clients.values():
 			# close the socket, disconnecting the client
-			cl.socket.shutdown()
+			# cl.socket.shutdown()
 			cl.socket.close()
 		# stop listening for new clients
 		self._listen_socket.close()
 
 	def _attempt_send(self, clid, data):
 		# python 2/3 compatability fix - convert non-unicode string to unicode
-		if sys.version < '3' and type(data) != unicode:
-			data = unicode(data, "latin1")
+		if sys.version < '3' and type(data) != str:
+			data = str(data, "latin1")
 		try:
 			# look up the client in the client map and use 'sendall' to send
 			# the message string on the socket. 'sendall' ensures that all of
