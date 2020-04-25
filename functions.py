@@ -2,10 +2,10 @@ __filename__ = "functions.py"
 __author__ = "Bartek Radwanski"
 __credits__ = ["Bartek Radwanski"]
 __license__ = "MIT"
-__version__ = "0.6.2"
+__version__ = "0.7.1"
 __maintainer__ = "Bartek Radwanski"
 __email__ = "bartek.radwanski@gmail.com"
-__status__ = "Production"
+__status__ = "Stable"
 
 import time
 import os
@@ -13,13 +13,17 @@ import commentjson
 import errno
 from copy import deepcopy
 import configparser
+import json
+
+from password import hash_password
+
 
 # example of config file usage
 # print(str(Config.get('Database', 'Hostname')))
 Config = configparser.ConfigParser()
 Config.read('config.ini')
 
-# Function to silently remove file 
+# Function to silently remove file
 def silentRemove(filename):
 	try:
 		os.remove(filename)
@@ -35,7 +39,7 @@ def loadPlayersDB(location = str(Config.get('Players', 'Location')), forceLowerc
 	for f in playerFiles:
 		with open(os.path.join(location,f)) as file_object:
 			#playersDB[f] = file_object.read()
-			DB[f] = commentjson.load(file_object)
+			DB[f] = json.load(file_object)
 
 	if forceLowercase is True:
 		out = {}
@@ -114,6 +118,7 @@ def savePlayer(player, masterDB, path = str(Config.get('Players', 'Location')) +
 			#print("removed file")
 			newPlayer = deepcopy(temp)
 			#print(newPlayer)
+			#newPlayer['pwd'] = hash_password(temp['pwd'])
 			newPlayer['pwd'] = temp['pwd']
 			for key in newPlayer:
 				if key != "pwd":
@@ -136,7 +141,7 @@ def saveState(player, masterDB):
 
 def str2bool(v):
   return v.lower() in ("yes", "true", "True", "t", "1")
-  
+
 def sendToChannel(sender, channel, message, channels):
 	#print("Im in!")
 	channels[getFreeKey(channels)] = {"channel": str(channel), "message": str(message), "sender": str(sender)}

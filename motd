@@ -1,19 +1,20 @@
-<f142>    ______    ___       ________       __   __  ___  __   __  ___ 
+<f142>    ______    ___       ________       __   __  ___  __   __  ___
 <f142>   /    " \  |"  |     |"      "\     |"  |/  \|  "||"  |/  \|  "|
 <f142>  // ____  \ ||  |     (.  ___  :)    |'  /    \:  ||'  /    \:  |
 <f142> /  /    ) :)|:  |     |: \   ) ||    |: /'        ||: /'        |
 <f142>(: (____/ //  \  |___  (| (___\ ||     \//  /\'    | \//  /\'    |
 <f142> \        /  ( \_|:  \ |:       :)     /   /  \\   | /   /  \\   |
 <f142>  \"_____/    \_______)(________/     |___/    \___||___/    \___|
-<f142>                                                                  
+<f142>
                 <f255>-<f243>Welcome To The Old Wild West<f255>-
 
 
-<f0><b220> a modern MU* engine                    
-<f0><b220>    github.com/wowpin/dumserver    
+<f0><b220> a modern MU* engine
+<f0><b220>    github.com/wowpin/dumserver
 
-<f0><b220> Codebase: v0.6.2 (Stable)         
+<f0><b220> Codebase: v0.7.1 (STABLE)
+
+<f220>Now including a <f34>Webclient<r>!
 
 <f15>You can create a new Character, or use the following guest account:
 <f15>Username: <r><f220>Guest<r><f15> Password: <r><f220>Password
-

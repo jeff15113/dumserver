@@ -2,10 +2,10 @@ __filename__ = "dumserver.py"
 __author__ = "Bartek Radwanski"
 __credits__ = ["Bartek Radwanski", "Mark Frimston"]
 __license__ = "MIT"
-__version__ = "0.6.2"
+__version__ = "0.7.1"
 __maintainer__ = "Bartek Radwanski"
 __email__ = "bartek.radwanski@gmail.com"
-__status__ = "Production"
+__status__ = "Stable"
 
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
@@ -14,19 +14,15 @@ import os
 
 from cmsg import cmsg
 
-from functions import getFreeKey
-from functions import log
-from functions import saveState
-from functions import addToScheduler
-from functions import loadPlayer
-from functions import savePlayer
-from functions import loadPlayersDB
-from functions import sendToChannel
+from functions import (addToScheduler, getFreeKey, loadPlayer, loadPlayersDB,
+			log, savePlayer, saveState, sendToChannel)
 
 from events import evaluateEvent
 
 from commands import runCommand
 from atcommands import runAtCommand
+
+from password import check_password, hash_password
 
 import time
 
@@ -131,6 +127,8 @@ eventSchedule = {}
 # Declare channels message queue dictionary
 channels = {}
 
+COMBAT_TIMEOUT = int(Config.get('Timeouts', 'Combat'))
+
 # Specify allowe player idle time
 allowedPlayerIdle = int(Config.get('World', 'IdleTimeBeforeDisconnect'))
 
@@ -138,7 +136,7 @@ allowedPlayerIdle = int(Config.get('World', 'IdleTimeBeforeDisconnect'))
 # Loading rooms
 with open(str(Config.get('Rooms', 'Definition')), "r") as read_file:
 	rooms = commentjson.load(read_file)
-	
+
 log("Rooms loaded: " + str(len(rooms)), "info")
 
 # Loading environment actors
@@ -169,7 +167,7 @@ log("Environment Actors loaded: " + str(len(envDB)), "info")
 	# print (x)
 	# for y in env[x]:
 		# print (y,':',env[x][y])
-		
+
 # Loading NPCs
 with open(str(Config.get('NPCs', 'Definition')), "r") as read_file:
 	npcsDB = commentjson.load(read_file)
@@ -184,6 +182,7 @@ for k in npcsDB:
 	npcsDB[k]['lastRoom'] = None
 	npcsDB[k]['whenDied'] = None
 	npcsDB[k]['vocabulary'] = npcsDB[k]['vocabulary'].split('|')
+	npcsDB[k]['combatVocabulary'] = npcsDB[k]['combatVocabulary'].split('|')
 	for v in npcsDB[k]:
 		if not(v == "name" or \
 		v == "room" or \
@@ -192,6 +191,7 @@ for k in npcsDB:
 		v == "lookDescription" or \
 		v == "lastRoom" or \
 		v == "loot" or \
+		v == "combatVocabulary" or \
 		v == "whenDied"):
 			npcsDB[k][v] = int(npcsDB[k][v])
 
@@ -279,7 +279,7 @@ npcsTemplate = deepcopy(npcs)
 	# print (x)
 	# for y in itemsInWorld[x]:
 		# print(y,':',itemsInWorld[x][y])
-		
+
 # stores the players in the game
 players = {}
 
@@ -289,6 +289,10 @@ playerList = []
 # start the server
 mud = MudServer()
 
+# Status Panel data identifier
+STATUS_PANEL_DATA = "c3RhdHVzcGFuZWw"
+
+log("", "Waiting for Webclient")
 
 # main game loop. We loop forever (i.e. until the program is terminated)
 while True:
@@ -298,10 +302,10 @@ while True:
 			gsocket.import_players(playerList)
 			gsocket.handle_read()
 			gsocket.handle_write()
-	
+
 			rcvd_msg = None
 			ret_value = None
-			
+
 			if len(gsocket.inbound_frame_buffer) > 0:
 				rcvd_msg = gsocket.receive_message()
 				#print(rcvd_msg.event)
@@ -313,17 +317,17 @@ while True:
 				elif rcvd_msg.event == "players/sign-in":
 					log("Received player sign in", "info")
 					log(ret_value)
-	
+
 			# update player list for grapevine heartbeats
 			playerList = []
 			for p in players:
 				if players[p]['name'] != None and players[p]['authenticated'] != None:
 					if players[p]['name'] not in playerList:
 						playerList.append(players[p]['name'])
-			
+
 		#grapevineLastHeartbeat = gsocket.msg_gen_lastheartbeat_timestamp()
 		#print(str(grapevineLastHeartbeat))
-		
+
 		# Let's wait some time before attempting reconnection (as defined in config.ini)
 		if gsocket.state["connected"] == False and int(time.time()) >= timeDisconnected + int(Config.get('Grapevine', 'ConnectionRetryDelay')):
 			#print("grapevine trying to reconnect")
@@ -355,9 +359,9 @@ while True:
 			grapevineReconnecting = True
 			useGrapevine = False
 			timeDisconnected = int(time.time())
-		
 
-	
+
+
 	# print("useGrapevine: " + str(useGrapevine))
 	# print("grapevineReconnecting: " + str(grapevineReconnecting))
 	# pause for 1/5 of a second on each loop, so that we don't constantly
@@ -382,6 +386,7 @@ while True:
 		# State Save logic End
 		lastStateSave = now
 
+
 	#Handle Server Shutdown Timer
 	try:
 		if game_variables["shutdown_time"] != None:
@@ -391,7 +396,7 @@ while True:
 					mud._handle_disconnect(id)
 				# print(len(players))
 				if len(players) == 0:
-					# print('shutdown')	 
+					# print('shutdown')
 					mud.shutdown()
 		else:
 			pass
@@ -414,8 +419,18 @@ while True:
 				fightsCopy = deepcopy(fights)
 				for (fight, pl) in fightsCopy.items():
 					if fightsCopy[fight]['s1id'] == pid or fightsCopy[fight]['s2id'] == pid:
+						#print("Entering the fights clearing section")
+						#print(str(fightsCopy[fight]))
+						if fightsCopy[fight]['s1type'] == 'npc':
+							#print("s1 = npc!")
+							npcs[fightsCopy[fight]['s1id']]['isInCombat'] = 0
+						if fightsCopy[fight]['s2type'] == 'npc':
+							#print("s2 = npc!")
+							npcs[fightsCopy[fight]['s2id']]['isInCombat'] = 0
 						del fights[fight]
 				for (pid2, pl) in list(players.items()):
+					if players[pid2]['target'] is not None and players[pid2]['target'][0].lower() == players[pid]['name'].lower():
+						players[pid2]['target'] = None
 					if players[pid2]['authenticated'] is not None \
 						and players[pid2]['room'] == players[pid]['lastRoom'] \
 						and players[pid2]['name'] != players[pid]['name']:
@@ -426,7 +441,8 @@ while True:
 				# Add Player Death event (ID:666) to eventSchedule
 				addToScheduler(666, pid, eventSchedule, scriptedEventsDB)
 
-				players[pid]['hp'] = 4
+				players[pid]['hp'] = players[pid]['hpMax']
+				players[pid]['target'] = None
 
 	# Handle Fights
 	for (fid, pl) in list(fights.items()):
@@ -438,6 +454,8 @@ while True:
 						players[fights[fid]['s1id']]['isInCombat'] = 1
 						players[fights[fid]['s2id']]['isInCombat'] = 1
 						# Do damage to the PC here
+						# set lastHit in a fight
+						fights[fid]['lastHit'] = int(time.time())
 						if randint(0, 1) == 1:
 							modifier = randint(0, 10)
 							if players[fights[fid]['s1id']]['hp'] > 0:
@@ -445,11 +463,13 @@ while True:
 								players[fights[fid]['s1id']]['lastCombatAction'] = int(time.time())
 								mud.send_message(fights[fid]['s1id'], 'You manage to hit <f32><u>' + players[fights[fid]['s2id']]['name'] + '<r> for <f15><b2> * ' + str(players[fights[fid]['s1id']]['str'] + modifier) + ' *<r> points of damage.')
 								mud.send_message(fights[fid]['s2id'], '<f32>' + players[fights[fid]['s1id']]['name'] + '<r> has managed to hit you for <f15><b88> * ' + str(players[fights[fid]['s1id']]['str'] + modifier) + ' *<r> points of damage.')
+								players[fights[fid]['s1id']]['idleStart'] = int(time.time())
 
 						else:
 							players[fights[fid]['s1id']]['lastCombatAction'] = int(time.time())
 							mud.send_message(fights[fid]['s1id'], 'You miss trying to hit <f32><u>' + players[fights[fid]['s2id']]['name'] + '')
 							mud.send_message(fights[fid]['s2id'], '<f32><u>' + players[fights[fid]['s1id']]['name'] + '<r> missed while trying to hit you!')
+							players[fights[fid]['s1id']]['idleStart'] = int(time.time())
 					else:
 						mud.send_message(fights[fid]['s1id'], '<f225>Suddnely you stop. It wouldn`t be a good idea to attack <f32>' + players[fights[fid]['s2id']]['name'] + ' at this time.')
 						fightsCopy = deepcopy(fights)
@@ -464,12 +484,15 @@ while True:
 						players[fights[fid]['s1id']]['isInCombat'] = 1
 						npcs[fights[fid]['s2id']]['isInCombat'] = 1
 						# Do damage to the NPC here
+						# set lastHit in a fight
+						fights[fid]['lastHit'] = int(time.time())
 						if randint(0, 1) == 1:
 							modifier = randint(0, 10)
 							if players[fights[fid]['s1id']]['hp'] > 0:
 								npcs[fights[fid]['s2id']]['hp'] = npcs[fights[fid]['s2id']]['hp'] - (players[fights[fid]['s1id']]['str'] + modifier)
 								players[fights[fid]['s1id']]['lastCombatAction'] = int(time.time())
 								mud.send_message(fights[fid]['s1id'], 'You manage to hit <f220>' + npcs[fights[fid]['s2id']]['name'] + '<r> for <b2><f15> * ' + str(players[fights[fid]['s1id']]['str'] + modifier)  + ' * <r> points of damage')
+								players[fights[fid]['s1id']]['idleStart'] = int(time.time())
 
 						else:
 							players[fights[fid]['s1id']]['lastCombatAction'] = int(time.time())
@@ -487,6 +510,8 @@ while True:
 					npcs[fights[fid]['s1id']]['isInCombat'] = 1
 					players[fights[fid]['s2id']]['isInCombat'] = 1
 					# Do the damage to PC here
+					# set lastHit in a fight
+					fights[fid]['lastHit'] = int(time.time())
 					if randint(0, 1) == 1:
 						modifier = randint(0, 10)
 						if npcs[fights[fid]['s1id']]['hp'] > 0:
@@ -500,28 +525,57 @@ while True:
 			test = 1
 			# NPC -> NPC
 
+	# Iterate through fights again and look for expired fights (combat where lastHit is a set amount of time in the past). hen found, delete such fight, effectively ending combat.
+	fightsCopy = deepcopy(fights)
+	for (fid, pl) in list(fightsCopy.items()):
+		if (int(fightsCopy[fid]['lastHit']) + int(COMBAT_TIMEOUT)) < int(time.time()):
+			if fightsCopy[fid]['s1type'] == 'npc':
+				npcs[fightsCopy[fid]['s1id']]['isInCombat'] = 0
+			if fightsCopy[fid]['s2type'] == 'npc':
+				npcs[fightsCopy[fid]['s2id']]['isInCombat'] = 0
+			del fights[fid]
+
 	# Iterate through NPCs, check if its time to talk, then check if anyone is attacking it
 	for (nid, pl) in list(npcs.items()):
 		# Check if any player is in the same room, then send a random message to them
 		now = int(time.time())
 		if now > npcs[nid]['timeTalked'] + npcs[nid]['talkDelay'] + npcs[nid]['randomizer']:
-			rnd = randint(0, len(npcs[nid]['vocabulary']) - 1)
-			while rnd is npcs[nid]['lastSaid']:
+			if npcs[nid]['isInCombat'] == 0:
 				rnd = randint(0, len(npcs[nid]['vocabulary']) - 1)
-			for (pid, pl) in list(players.items()):
-				if npcs[nid]['room'] == players[pid]['room']:
-					if len(npcs[nid]['vocabulary']) > 1:
-						#mud.send_message(pid, npcs[nid]['vocabulary'][rnd])
-						msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f86>' + npcs[nid]['vocabulary'][rnd]
-						mud.send_message(pid, msg)
-						npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
-						npcs[nid]['lastSaid'] = rnd
-					else:
-						#mud.send_message(pid, npcs[nid]['vocabulary'][0])
-						msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f86>' + npcs[nid]['vocabulary'][0]
-						mud.send_message(pid, msg)
-						npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
-			npcs[nid]['timeTalked'] =  now
+				while rnd is npcs[nid]['lastSaid']:
+					rnd = randint(0, len(npcs[nid]['vocabulary']) - 1)
+				for (pid, pl) in list(players.items()):
+					if npcs[nid]['room'] == players[pid]['room']:
+						if len(npcs[nid]['vocabulary']) > 1:
+							#mud.send_message(pid, npcs[nid]['vocabulary'][rnd])
+							msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f86>' + npcs[nid]['vocabulary'][rnd]
+							mud.send_message(pid, msg)
+							npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
+							npcs[nid]['lastSaid'] = rnd
+						else:
+							#mud.send_message(pid, npcs[nid]['vocabulary'][0])
+							msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f86>' + npcs[nid]['vocabulary'][0]
+							mud.send_message(pid, msg)
+							npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
+				npcs[nid]['timeTalked'] =  now
+			else:
+				rnd = randint(0, len(npcs[nid]['combatVocabulary']) - 1)
+				while rnd is npcs[nid]['lastSaid']:
+					rnd = randint(0, len(npcs[nid]['combatVocabulary']) - 1)
+				for (pid, pl) in list(players.items()):
+					if npcs[nid]['room'] == players[pid]['room']:
+						if len(npcs[nid]['combatVocabulary']) > 1:
+							#mud.send_message(pid, npcs[nid]['vocabulary'][rnd])
+							msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f9>' + npcs[nid]['combatVocabulary'][rnd]
+							mud.send_message(pid, msg)
+							npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
+							npcs[nid]['lastSaid'] = rnd
+						else:
+							#mud.send_message(pid, npcs[nid]['vocabulary'][0])
+							msg = '<f220>' + npcs[nid]['name'] + '<r> says: <f9>' + npcs[nid]['combatVocabulary'][0]
+							mud.send_message(pid, msg)
+							npcs[nid]['randomizer'] = randint(0, npcs[nid]['randomFactor'])
+				npcs[nid]['timeTalked'] =  now
 
 		# Iterate through fights and see if anyone is attacking an NPC - if so, attack him too if not in combat (TODO: and isAggressive = true)
 		for (fid, pl) in list(fights.items()):
@@ -531,14 +585,15 @@ while True:
 				npcs[fights[fid]['s2id']]['lastCombatAction'] = int(time.time())
 				fights[fid]['retaliated'] = 1
 				npcs[fights[fid]['s2id']]['isInCombat'] = 1
-				fights[len(fights)] = { 's1': npcs[fights[fid]['s2id']]['name'], 's2': players[fights[fid]['s1id']]['name'], 's1id': nid, 's2id': fights[fid]['s1id'], 's1type': 'npc', 's2type': 'pc', 'retaliated': 1 }
+				fights[getFreeKey(fights)] = { 's1': npcs[fights[fid]['s2id']]['name'], 's2': players[fights[fid]['s1id']]['name'], 's1id': nid, 's2id': fights[fid]['s1id'], 's1type': 'npc', 's2type': 'pc', 'retaliated': 1, 'lastHit': int(time.time()) }
+				print("NPC has retaliated")
 			elif fights[fid]['s2id'] == nid and npcs[fights[fid]['s2id']]['isInCombat'] == 1 and fights[fid]['s1type'] == 'npc' and fights[fid]['retaliated'] == 0:
 				# print('npc is attacking npc')
 				# BETA: set las combat action to now when attacking a player
 				npcs[fights[fid]['s2id']]['lastCombatAction'] = int(time.time())
 				fights[fid]['retaliated'] = 1
 				npcs[fights[fid]['s2id']]['isInCombat'] = 1
-				fights[len(fights)] = { 's1': npcs[fights[fid]['s2id']]['name'], 's2': players[fights[fid]['s1id']]['name'], 's1id': nid, 's2id': fights[fid]['s1id'], 's1type': 'npc', 's2type': 'npc', 'retaliated': 1 }
+				fights[getFreeKepy(fights)] = { 's1': npcs[fights[fid]['s2id']]['name'], 's2': players[fights[fid]['s1id']]['name'], 's1id': nid, 's2id': fights[fid]['s1id'], 's1type': 'npc', 's2type': 'npc', 'retaliated': 1, 'lastHit': int(time.time()) }
 		# Check if NPC is still alive, if not, remove from room and create a corpse, set isInCombat to 0, set whenDied to now and remove any fights NPC was involved in
 		if npcs[nid]['hp'] <= 0:
 			npcs[nid]['isInCombat'] = 0
@@ -551,12 +606,15 @@ while True:
 			corpses[len(corpses)] = { 'room': npcs[nid]['room'], 'name': str(npcs[nid]['name'] + '`s corpse'), 'inv': npcs[nid]['inv'], 'died': int(time.time()), 'TTL': npcs[nid]['corpseTTL'], 'owner': 1 }
 			for (pid, pl) in list(players.items()):
 				if players[pid]['authenticated'] is not None:
+					if players[pid]['target'] != None and players[pid]['target'][4] == nid:
+						players[pid]['target'] = None
 					if players[pid]['authenticated'] is not None and players[pid]['room'] == npcs[nid]['room']:
 						mud.send_message(pid, "<f220>{}<r> <f88>has been killed.".format(npcs[nid]['name']))
+
 			npcs[nid]['lastRoom'] = npcs[nid]['room']
 			npcs[nid]['room'] = None
 			npcs[nid]['hp'] = npcsTemplate[nid]['hp']
-			
+
 			# Drop NPC loot on the floor
 			droppedItems = []
 			for i in npcs[nid]['inv']:
@@ -607,12 +665,42 @@ while True:
 	for (nid, pl) in list(npcs.items()):
 		# print(npcs[nid])
 		if npcs[nid]['whenDied'] is not None and int(time.time()) >= npcs[nid]['whenDied'] + npcs[nid]['respawn']:
-			#print("IN")
-			npcs[nid]['whenDied'] = None
-			#npcs[nid]['room'] = npcsTemplate[nid]['room']
-			npcs[nid]['room'] = npcs[nid]['lastRoom']
-			# print("respawning " + npcs[nid]['name'])
-			# print(npcs[nid]['hp'])
+			# Look for an NPC template in the DB and when found, respawn the NPC setting his stats back to what they should be.
+			for n in npcsDB:
+				if npcsDB[n]['name'] == npcs[nid]['name'] and npcsDB[n]['lookDescription'] == npcs[nid]['lookDescription']:
+					npcs[nid]['whenDied'] = None
+					npcs[nid]['room'] = npcs[nid]['lastRoom']
+					npcs[nid]['hp'] = npcsDB[n]['hp']
+					npcs[nid]['charge'] = npcsDB[n]['charge']
+					npcs[nid]['lvl'] = npcsDB[n]['lvl']
+					npcs[nid]['exp'] = npcsDB[n]['exp']
+					npcs[nid]['str'] = npcsDB[n]['str']
+					npcs[nid]['per'] = npcsDB[n]['per']
+					npcs[nid]['endu'] = npcsDB[n]['endu']
+					npcs[nid]['cha'] = npcsDB[n]['cha']
+					npcs[nid]['inte'] = npcsDB[n]['inte']
+					npcs[nid]['agi'] = npcsDB[n]['agi']
+					npcs[nid]['luc'] = npcsDB[n]['luc']
+					npcs[nid]['cred'] = npcsDB[n]['cred']
+					npcs[nid]['clo_head'] = npcsDB[n]['clo_head']
+					npcs[nid]['clo_larm'] = npcsDB[n]['clo_larm']
+					npcs[nid]['clo_rarm'] = npcsDB[n]['clo_rarm']
+					npcs[nid]['clo_lhand'] = npcsDB[n]['clo_lhand']
+					npcs[nid]['clo_rhand'] = npcsDB[n]['clo_rhand']
+					npcs[nid]['clo_chest'] = npcsDB[n]['clo_chest']
+					npcs[nid]['clo_lleg'] = npcsDB[n]['clo_lleg']
+					npcs[nid]['clo_rleg'] = npcsDB[n]['clo_rleg']
+					npcs[nid]['clo_feet'] = npcsDB[n]['clo_feet']
+					npcs[nid]['imp_head'] = npcsDB[n]['imp_head']
+					npcs[nid]['imp_larm'] = npcsDB[n]['imp_larm']
+					npcs[nid]['imp_rarm'] = npcsDB[n]['imp_rarm']
+					npcs[nid]['imp_lhand'] = npcsDB[n]['imp_lhand']
+					npcs[nid]['imp_rhand'] = npcsDB[n]['imp_rhand']
+					npcs[nid]['imp_chest'] = npcsDB[n]['imp_chest']
+					npcs[nid]['imp_lleg'] = npcsDB[n]['imp_lleg']
+					npcs[nid]['imp_rleg'] = npcsDB[n]['imp_rleg']
+					npcs[nid]['imp_feet'] = npcsDB[n]['imp_feet']
+					#npcs[nid]['isInCombat'] = npcsDB[n]['isInCombat']
 
 	# Evaluate the Event Schedule
 	for (event, pl) in list(eventSchedule.items()):
@@ -623,7 +711,7 @@ while True:
 			else:
 				evaluateEvent(eventSchedule[event]['target'], eventSchedule[event]['type'], eventSchedule[event]['body'], players, npcs, itemsInWorld, env, npcsDB, envDB)
 			del eventSchedule[event]
-	
+
 	# Evaluate player idle time and disconnect if required
 	now = int(time.time())
 	playersCopy = deepcopy(players)
@@ -640,7 +728,7 @@ while True:
 			mud._handle_disconnect(p)
 
 	npcsTemplate = deepcopy(npcs)
-	
+
 	# go through channels messages queue and send messages to subscribed players
 	ch = deepcopy(channels)
 	for p in players:
@@ -652,8 +740,8 @@ while True:
 						mud.send_message(p, "[<f191>" + ch[m]['channel'] + "<r>] <f32>" + ch[m]['sender'] + "<r>: " + ch[m]['message'])
 						# del channels[m]
 	channels.clear()
-	
-	
+
+
 
 	# go through any newly connected players
 	for id in mud.get_new_players():
@@ -716,7 +804,11 @@ while True:
 			'defaultChannel': None,
 			'exAttribute0': None,
 			'exAttribute1': None,
-			'exAttribute2': None
+			'exAttribute2': None,
+			'hpMax': None,
+			'target': None,
+			'statusPanelSent': None,
+			'chargeMax': None
 			}
 
 		# Read in the MOTD file and send to the player
@@ -732,11 +824,11 @@ while True:
 				mud.send_message(id, f"<f0><b220>      Players currently online: {len(players)}       ")
 			else:
 				mud.send_message(id, l[:-1])
-			
+
 		# mud.send_message(id, f"Server time is: {time.ctime()}")
 		mud.send_message(id, "\nWhat is your username? (type <f255>new<r> for new character)")
 		log("Client ID: " + str(id) + " has connected", "info")
-		
+
 	# go through any recently disconnected players
 	for id in mud.get_disconnected_players():
 
@@ -744,9 +836,9 @@ while True:
 		# move on to the next one
 		if id not in players:
 			continue
-		
+
 		log("Client ID: " + str(id) + " has disconnected (" + str(players[id]['name']) + ")", "info")
-		
+
 		# go through all the players in the game
 		for (pid, pl) in list(players.items()):
 			# send each player a message to tell them about the diconnected
@@ -763,7 +855,7 @@ while True:
 			log("Player disconnected, saving state", "info")
 			saveState(players[id], playersDB)
 			playersDB = loadPlayersDB()
-		
+
 		# TODO: IDEA - Some sort of a timer to have the character remain in the game for some time after disconnection?
 
 		# Create a deep copy of fights, iterate through it and remove fights disconnected player was taking part in
@@ -776,20 +868,38 @@ while True:
 		# remove the player's entry in the player dictionary
 		del players[id]
 
-	
+	# Iterate players and send out the status panel data prefixed by a status panel tag, which will be recognised by the webclient and handled accordingly.
+	for p in players:
+		if players[p]['authenticated'] != None:
+			if int(time.time()) > players[p]['statusPanelSent'] + int(Config.get('Webclient', 'StatusDataInterval')):
+				s_name = players[p]['name']
+				s_level = players[p]['lvl']
+				s_location = rooms[players[p]['room']]['name']
+				s_hp = players[p]['hp']
+				s_hpmax = players[p]['hpMax']
+				s_charge = players[p]['charge']
+				s_chargemax = players[p]['chargeMax']
+				s_isincombat = players[p]['isInCombat']
+				if players[p]['target'] != None:
+					s_target = players[p]['target'][0]
+				else:
+					s_target = "[None]"
+				mud.send_message(p, STATUS_PANEL_DATA + s_name + ';' + str(s_level) + ';' + s_location + ';' + str(s_hp) + ';' + str(s_hpmax) + ';' + str(s_charge) + ';' + str(s_chargemax) + ';' + str(s_isincombat) + ';' + s_target)
+				players[p]['statusPanelSent'] = int(time.time())
+
 	# go through any new commands sent from players
 	for (id, command, params) in mud.get_commands():
 		# if for any reason the player isn't in the player map, skip them and
 		# move on to the next one
 		if id not in players:
 			continue
-		
+
 		# print(str(players[id]['authenticated']))
 		if command.lower() == "startover" and players[id]['exAttribute0'] != None and players[id]['authenticated'] == None:
 			players[id]['idleStart'] = int(time.time())
 			mud.send_message(id, "<f220>Ok, Starting character creation from the beginning!\n")
 			players[id]['exAttribute0'] = 1000
-		
+
 		if command.lower() == "exit" and players[id]['exAttribute0'] != None and players[id]['authenticated'] == None:
 			players[id]['idleStart'] = int(time.time())
 			mud.send_message(id, "<f220>Ok, leaving the character creation.\n")
@@ -807,17 +917,29 @@ while True:
 				pass
 			players[id]['exAttribute0'] = 1001
 			break
-		
+
 		if players[id]['exAttribute0'] == 1001:
 			players[id]['idleStart'] = int(time.time())
 			taken = False
+			blank = False
+			nonAlnum = False
 			for p in playersDB:
+				if len(command) < 1:
+					mud.send_message(id, "\n<f220>Character name cannot be blank!")
+					mud.send_message(id, "Press ENTER to continue...")
+					blank = True
+					break
 				if playersDB[p]['name'].lower() == command.lower():
 					mud.send_message(id, "\n<f220>This character name is already taken!")
 					mud.send_message(id, "Press ENTER to continue...")
 					taken = True
 					break
-			if taken == False:	
+				if command.isalnum() == False:
+					mud.send_message(id, "\n<f220>Character names must be alphanumeric!")
+					mud.send_message(id, "Press ENTER to continue...")
+					nonAlnum = True
+					break
+			if taken == False and blank == False and nonAlnum == False:
 				players[id]['exAttribute1'] = command
 				# print(players[id]['exAttribute1'])
 				mud.send_message(id, "<f220>\nAhh.. <r><f32>" + command + "<r><f220>! That's a strong name!\n")
@@ -828,28 +950,29 @@ while True:
 				players[id]['idleStart'] = int(time.time())
 				players[id]['exAttribute0'] = 1000
 				break
-			
+
 		if players[id]['exAttribute0'] == 1002:
 			players[id]['idleStart'] = int(time.time())
 			mud.send_message(id, "<f220>\nOk, got that.")
 			players[id]['exAttribute2'] = command
-			
+
 			# Load the player template from a file
 			with open(str(Config.get('Players', 'Location')) + "/player.template", "r") as read_file:
 				template = commentjson.load(read_file)
-			
+
 			# Make required changes to template before saving again into <Name>.player
 			template['name'] = players[id]['exAttribute1']
-			template['pwd'] = players[id]['exAttribute2']
-			
+
+			template['pwd'] = hash_password(players[id]['exAttribute2'])
+
 			# Save template into a new player file
 			# print(template)
 			with open(str(Config.get('Players', 'Location')) + "/" + template['name'] + ".player", 'w') as fp:
 				commentjson.dump(template, fp)
-			
+
 			# Reload PlayersDB to include this newly created player
 			playersDB = loadPlayersDB()
-			
+
 			players[id]['exAttribute0'] = None
 			mud.send_message(id, '<f220>Your character has now been created, you can log in using credentials you have provided.\n')
 			# mud.send_message(id, '<f15>What is your username?')
@@ -866,9 +989,9 @@ while True:
 				file = loadPlayer(command, playersDB)
 				if file is not None:
 					dbResponse = tuple(file.values())
-				
+
 				#print(dbResponse)
-				
+
 				if dbResponse != None:
 					players[id]['name'] = dbResponse[0]
 
@@ -901,7 +1024,7 @@ while True:
 				if players[id]['name'] != None and players[pl]['name'] != None and players[id]['name'] == players[pl]['name'] and pl != id:
 					playerFound = True
 
-			if dbPass == command:
+			if check_password(dbPass, command):
 				if playerFound == False:
 					players[id]['authenticated'] = True
 					players[id]['prefix'] = "None"
@@ -955,8 +1078,11 @@ while True:
 					players[id]['exAttribute0'] = dbResponse[37]
 					players[id]['exAttribute1'] = dbResponse[38]
 					players[id]['exAttribute2'] = dbResponse[39]
-					
-					
+					players[id]['hpMax'] = dbResponse[40]
+					players[id]['statusPanelSent'] = int(time.time())
+					players[id]['chargeMax'] = dbResponse[41]
+
+
 					log("Client ID: " + str(id) + " has successfully authenticated user " + players[id]['name'], "info")
 					# print(players[id])
 					# go through all the players in the game
@@ -966,14 +1092,14 @@ while True:
 							and players[pid]['room'] == players[id]['room'] \
 							and players[pid]['name'] != players[id]['name']:
 							mud.send_message(pid, '{} has materialised out of thin air nearby.'.format(players[id]['name']))
-	
+
 					# send the new player a welcome message
-					mud.send_message(id, '\n<f220>Welcome to DUM!, {}. '.format(players[id]['name']))
+					mud.send_message(id, '\n<f220>Welcome to DUMSERVER!, {}. '.format(players[id]['name']))
 					mud.send_message(id, '\n<f255>Hello there traveller! You have connected to a DUM development server, which currently consists of a few test rooms, npcs, items and environment actors. You can move around the rooms along with other players (if you are lucky to meet any), attack each other (including NPCs), pick up and drop items and chat. Make sure to visit the github repo for further info, make sure to check out the CHANGELOG. Thanks for your interest in DUM, high five!')
-					mud.send_message(id, "\n<f220>Some feature highlights in v0.6.2:")
-					mud.send_message(id, "<f255> * STILL Preparing for full Grapevine integration and major Webclient overhaul")
-					mud.send_message(id, "<f255> * Connection to Grapevine is now monitored and will be re-established automatically following Grapevine downtime")
-					mud.send_message(id, "<f255> * Number of bugfixes")
+					mud.send_message(id, "\n<f220>v0.7.1 highlights:")
+					mud.send_message(id, "<f255> * Major improvements and bugfixes in installer.sh.")
+					mud.send_message(id, "<f255> * One-liner server installation. Yay!")
+
 					mud.send_message(id, "\n<f255>Type '<r><f220>help<r><f255>' for a list of all currently implemented commands/functions. Have fun!")
 				else:
 					mud.send_message(id, '<f202>This character is already in the world!')
@@ -999,7 +1125,7 @@ while True:
 						c = command[1:]
 						if len(c) == 0 and players[id]['defaultChannel'] != None:
 							c = players[id]['defaultChannel']
-							
+
 						if len(c) > 0:
 							if len(params) > 0:
 								if c.lower() == "system":
@@ -1033,8 +1159,6 @@ while True:
 								#sendToChannel(players[id]['name'], players[id]['defaultChannel'], params, channels)
 							#else:
 							mud.send_message(id, "Which channel would you like to message?")
-							
+
 					else:
 						runCommand(command.lower(), params, mud, playersDB, players, rooms, npcsDB, npcs, itemsDB, itemsInWorld, envDB, env, scriptedEventsDB, eventSchedule, id, fights, corpses)
-			
-

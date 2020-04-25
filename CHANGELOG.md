@@ -1,4 +1,76 @@
-### ![Current Version](https://img.shields.io/badge/%20-Current%20Version-green.svg) ![0.6.2](https://img.shields.io/badge/%20-0.6.2-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/3%20APR%202019-lightgrey.svg)
+### ![Current Version](https://img.shields.io/badge/%20-Current%20Version-green.svg) ![0.7.1](https://img.shields.io/badge/%20-0.7.1-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/30%20DEC%202019-lightgrey.svg)
+- **Major improvements and bugfixes in installer.sh**
+- Obsolete version of NPM recently started generating installer errors, NPM has been updated to the most recent version.
+- Node package dependencies have been updated to newest versions where possible. Updates which require webclient code redesign have been skipped for now.
+- introduced a `setup.py` script, which will configure dum webclient after server installation. It will detect server's public IP and set accordingly in webclient configuration files. Alternatively you can choose to provide the IP manually.
+- Installation process now boils down to pasting a single oneliner.
+- `server-start`, `server-stop` and `server-status` scripts have been improved to aler the user if for some reason `setup.py` has not completed.
+
+### ![Legacy Version](https://img.shields.io/badge/%20-Legacy%20Version-orange.svg) ![0.7.0](https://img.shields.io/badge/%20-0.7.0-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/4%20DEC%202019-lightgrey.svg)
+- **A Major release is upon us!** With 0.7.0, a Webclient has finally become an integral part of DUM repository. It now gets installed along with the server itself and all required nodejs dependencies. to simplify running server+webclient as a single package, 3 additional .sh files have been implemented - pretty self explanatory `server-start.sh`, `server-stop.sh`, `server-status.sh`.
+- An overhaul of webclient functionality has begun. As a first step, a side panel has been implemented, which shows various players related information and stats in real time.
+- `installer.sh` has been improved with fetching of missing python modules via a `requirements.txt` file.
+
+### ![Legacy Version](https://img.shields.io/badge/%20-Legacy%20Version-orange.svg) ![0.6.5](https://img.shields.io/badge/%20-0.6.5-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/20%20SEP%202019-lightgrey.svg)
+- **Finalised targetting system!** Woop! It has been polished, de-bugged and is currently rather stable and robust.
+- PvP and PvE fights will now expire after 35 seconds of inactivity. As an example -  if you hit an NPC and flee the room, after 35 seconds the NPC will loose aggro and no longer attack you if you return. 
+- Players will now loose their current target when they `go` to another room during a fight.
+- Fights where the player is the attacking side will now cease when he leaves the room. When a player returns to the room, the NPC might still be attacking (due to not yet expired aggro), but a player will need to `target` and `attack` again.
+- Fixed Issue **#17** (Players respawn with 4HP rather than their max HP)
+- Fixed Issue **#15** (Player's current target persists through player's death)
+- Fixed Issue **#16** (Player's current target persists through targets death)
+- Fixed a bug where a server would crash on player death in certain scenarios.
+- Fixed Issue **#19** (Server crash on NPC death after leaving area)
+- Fixed Issue **#21** (Targetting an NPC with non-existetnt ID throws an unhandled exception.)
+- Implemented Enhancement #22 (Combat Announcements)
+- Fixed Issue **#27** (Combat with NPC does not persist in certain scenario)
+- Fixed Issue **#29** (Issue with targetting NPC in crowded room)
+- Fixed Issue **#31** (Players can get disconnected due to inactivity during ongoing fights)
+- Cosmetic changes here and there
+
+### ![Legacy Version](https://img.shields.io/badge/%20-Legacy%20Version-orange.svg) ![0.6.4](https://img.shields.io/badge/%20-0.6.4-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/28%20MAY%202019-lightgrey.svg)
+- Fixed issue **#14** (Not handling the "#" character in user password)
+- Fixed issue **#12** (NPCs only ever dropping the first item from their loot table)
+- Fixed issue **#10** (NPCs not coming out of combat after killing a player)
+- Closed issue **#11** (Crash on NPC respawn) - no longer a problem
+- Fixed issue **#8** (Random server crashes)
+- Fixed issue **#13** (Targeting does not work while there are non-authenticated players)
+- NPC phrases during combat are now displayed in different color
+- Network port DUM is running on is now configurable via config.ini (in the System section)
+
+### ![Legacy Version](https://img.shields.io/badge/%20-Legacy%20Version-orange.svg) ![0.6.3](https://img.shields.io/badge/%20-0.6.3-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/28%20MAY%202019-lightgrey.svg)
+- Fixed issue **#9** (NPCs not respawning with full health)
+- Fixed issue **#7** (Blank names allowed in user creation)
+- Fixed issue **#2** (Channel name length is unrestricted)
+- Fixed issue **#3** (No character name validation when creating new character)
+- Added a 'hpMax' parameter to players. All accounts created so far on Dev Server 2 (dum.wowpin.eu) have been wiped - accounts created pre-0.6.3 are missing 'hpMax' from their definitions causing compatibility issue.
+- NPCs will now stop saying their routine phrases while in combat and switch to saying their combat phrases. 'combatVocabulary' has been introduced in NPC definition (def/npcs.json).
+- **Introducing a targeting system.** Currently not doing much more than just allowing you to target an NPC/PC, it allows selecting a specific npc in a situation where there are multiple instances of the same NPC in a room (e.g. 3 rats etc.). In summary:
+
+`target` - displays your current target
+
+`target <name>` - targets a Player or a Non-Player in your current room
+
+if there are multiple NPCs with the same name, you will be given an option to specify which one exactly to target. A list will be displayed including unique IDs:
+
+```
+You can see 5 of those around. Which one would you like to target?
+<90000> Cleaning Robot, it is a Non-Player
+<90001> Cleaning Robot, it is a Non-Player
+<90002> Cleaning Robot, it is a Non-Player
+<90003> Cleaning Robot, it is a Non-Player
+<90004> Cleaning Robot, it is a Non-Player
+Which one would you like to target?
+```
+
+You can reissue the `target` command including the unique ID of your choice to target the NPC you are after:
+
+`target cleaning robot 90002` or `target 90002 cleaning robot`
+
+Note: It is not possible to `target 90002`!
+
+Right now targeting is not usable in any part of the game, I'll be incorporating it in existing mechanics over the coming updates. It paves the way for ability use, more advanced combat mechanics, controlled ability casting etc.
+### ![Legacy Version](https://img.shields.io/badge/%20-Legacy%20Version-orange.svg) ![0.6.2](https://img.shields.io/badge/%20-0.6.2-lightgrey.svg) ![Publish Date](https://img.shields.io/badge/3%20APR%202019-lightgrey.svg)
 - **Automatic re-connection to Grapevine following network downtime!** - DUM now tracks timestamp of the last heartbeat. Once heartbeat has been detected to take unusually long (tolerance set via MaxHeartbeatDelay in config.ini - in seconds), DUM will attempt to reconnect to the network once after a configurable amount of time (controlled via ConnectionRetryDelay in config.ini - in seconds). If the reconnection attempt fails, Grapevine will be permanently disabled.
 - Readability of damage bubbles improved
 
